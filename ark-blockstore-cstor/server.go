@@ -23,8 +23,6 @@ func (s *serverUtils) backupSnapshot(bwriter *blob.Writer) error {
 	var events [MaxEpollEvents]syscall.EpollEvent
 	var buf [32 * 1024]byte
 
-	//ipAddr := GetHostIp()
-
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.O_NONBLOCK|syscall.SOCK_STREAM, 0)
 	if err != nil {
 		s.Log.Errorf("Failed to initialize socket: %s", err)
@@ -86,7 +84,7 @@ func (s *serverUtils) backupSnapshot(bwriter *blob.Writer) error {
 					for {
 						nbytes, e := syscall.Read(int(events[ev].Fd), buf[:])
 						if nbytes > 0 {
-							_, err := bwriter.Write(buf[:])
+							_, err := bwriter.Write(buf[:nbytes])
 							if err != nil {
 								s.Log.Errorf("Failed to write to file: %s", err)
 								_ = syscall.EpollCtl(epfd, syscall.EPOLL_CTL_DEL, int(events[ev].Fd), nil)

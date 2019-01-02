@@ -16,16 +16,63 @@ import (
         metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
         "k8s.io/client-go/kubernetes"
         "k8s.io/client-go/rest"
-        v1alpha1 "github.com/openebs/maya/pkg/apis/openebs.io/v1alpha1"
+//        v1alpha1 "github.com/openebs/maya/pkg/apis/openebs.io/v1alpha1"
 )
 
 const (
 	mayaAPIServiceName = "maya-apiserver-service"
-	snapshotCreatePath = "/latest/snapshots/"
+	backupCreatePath = "/latest/backups/"
 	operator = "openebs"
 	casType = "cstor"
 	backupDir = "backups"
 )
+
+////////////****** HACK
+type CStorBackupPhase string
+const (
+	// CSBStatusEmpty ensures the create operation is to be done, if import fails.
+	CSBStatusEmpty CStorBackupPhase = ""
+	// CVRStatusOnline ensures the resource is available.
+	CSBStatusOnline CStorBackupPhase = "Healthy"
+	// CVRStatusOffline ensures the resource is not available.
+	CSBStatusOffline CStorBackupPhase = "Offline"
+	// CVRStatusDegraded means that the rebuilding has not yet started.
+	CSBStatusDegraded CStorBackupPhase = "Degraded"
+	// CSBStatusError means that the volume status could not be found.
+	CSBStatusError CStorBackupPhase = "Error"
+	// CSBStatusDeletionFailed ensures the resource deletion has failed.
+	CSBStatusDeletionFailed CStorBackupPhase = "Error"
+	// CSBStatusInvalid ensures invalid resource.
+	CSBStatusInvalid CStorBackupPhase = "Invalid"
+	// CSBStatusErrorDuplicate ensures error due to duplicate resource.
+	CSBStatusErrorDuplicate CStorBackupPhase = "Invalid"
+	// CSBStatusPending ensures pending task of cvr resource.
+	CSBStatusPending CStorBackupPhase = "Init"
+)
+
+// CStorBackupStatus is for handling status of cvr.
+type CStorBackupStatus struct {
+	Phase CStorBackupPhase `json:"phase"`
+}
+
+// CStorBackup describes a cstor volume resource created as custom resource
+type CStorBackup struct {
+    metav1.TypeMeta   `json:",inline"`
+    metav1.ObjectMeta `json:"metadata,omitempty"`
+    Spec              CStorBackupSpec   `json:"spec"`
+    Status            CStorBackupStatus `json:"status"`
+}
+
+// CStorBackupSpec is the spec for a CStorBackup resource
+type CStorBackupSpec struct {
+    Name         string `json:"name"`
+    VolumeName   string `json:"volumeName"`
+    CasType      string `json:"casType"`
+    SnapName     string `json:"newSnapName"`
+    PrevSnapName string `json:"oldSnapName"`
+    BackupDest   string `json:"backupDest"`
+}
+////////////****** HACK END
 
 type cstorSnap struct {
         Log logrus.FieldLogger
@@ -86,7 +133,7 @@ func (p *cstorSnap) snapDeleteReq(snapInfo Snapshot, config map[string]string) e
 	}
 
 	addr := p.getMapiAddr()
-        url := addr + snapshotCreatePath + snapInfo.backupName
+        url := addr + backupCreatePath + snapInfo.backupName
 
         req, err := http.NewRequest("DELETE", url, nil)
 
@@ -128,19 +175,32 @@ func (p *cstorSnap) snapDeleteReq(snapInfo Snapshot, config map[string]string) e
 }
 
 func (p *cstorSnap) snapCreateReq(volName, snapName, namespace string, config map[string]string) error {
-        var snap v1alpha1.CASSnapshot
-
 	addr := p.getMapiAddr()
 
-        snap.Namespace = namespace
-        snap.Name = snapName
-        snap.Spec.CasType = casType
-        snap.Spec.VolumeName = volName
+	serverAddr := GetHostIp()
+	if serverAddr == "" {
+		return fmt.Errorf("Failed to get server ip")
+	}
 
-        url := addr + snapshotCreatePath
+	backupUrl := serverAddr + ":" + strconv.Itoa(RecieverPort)
+	bkpSpec := &CStorBackupSpec{
+		Name: snapName,
+		VolumeName: volName,
+		CasType: casType,
+		BackupDest: backupUrl,
+	}
 
-        snapBytes, _ := json.Marshal(snap)
-        req, err := http.NewRequest("POST", url, bytes.NewBuffer(snapBytes))
+	bkp := &CStorBackup {
+		ObjectMeta: metav1.ObjectMeta {
+			Namespace: namespace,
+		},
+		Spec: *bkpSpec,
+	}
+
+        url := addr + backupCreatePath
+
+        bkpData, _ := json.Marshal(bkp)
+        req, err := http.NewRequest("POST", url, bytes.NewBuffer(bkpData))
         req.Header.Add("Content-Type", "application/json")
 
         c := &http.Client{
@@ -168,7 +228,7 @@ func (p *cstorSnap) snapCreateReq(volName, snapName, namespace string, config ma
 	clutils := &cloudUtils{Log: p.Log}
 	ret := clutils.UploadSnapshot(volName, snapName, config)
 	if ret != true {
-		return errors.New("Failed to upload snapshot")
+		return errors.New("Failed to upload snap backup")
 	} else {
 		return nil
 	}
