@@ -39,7 +39,7 @@ func (p *Plugin) httpRestCall(url, reqtype string, data []byte) ([]byte, error) 
 	req.Header.Add("Content-Type", "application/json")
 
 	c := &http.Client{
-		Timeout: 60 * time.Second,
+		Timeout: 150 * time.Second,
 	}
 
 	resp, err := c.Do(req)
@@ -302,7 +302,7 @@ func (p *Plugin) sendDeleteRequest(backup, volume, namespace, schedule string, i
 	req.URL.RawQuery = q.Encode()
 
 	c := &http.Client{
-		Timeout: 60 * time.Second,
+		Timeout: 150 * time.Second,
 	}
 
 	resp, err := c.Do(req)
